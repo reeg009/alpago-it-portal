@@ -149,6 +149,7 @@ export function confirmBox(title, message, { danger = false, okText = 'Confirm' 
 // ---------- form builder ----------
 // field: { name, label, type, options:[{value,label}]|[string], required, value, placeholder, full, help, rows }
 export function field(f) {
+  if (f.type === 'heading') return html`<h4 class="form-section full">${f.label}</h4>`;
   const v = f.value ?? '';
   const id = `f_${f.name}`;
   let input;
@@ -190,7 +191,7 @@ export function formModal({ title, fields, submitText = 'Save', size = 'md', int
       const err = m.querySelector('.form-error');
       const go = async (e) => {
         e?.preventDefault();
-        const missing = [...form.querySelectorAll('[required]')].find((el) => !el.value.trim());
+        const missing = [...form.querySelectorAll('[required]')].find((el) => el.type !== 'file' && !el.value.trim());
         if (missing) { err.hidden = false; err.textContent = `${missing.closest('.field').querySelector('label').textContent.replace('*', '')} is required`; missing.focus(); return; }
         btn.disabled = true; err.hidden = true;
         try { await onSubmit(formData(form), close); } catch (ex) { err.hidden = false; err.textContent = ex.message; } finally { btn.disabled = false; }

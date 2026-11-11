@@ -1,7 +1,7 @@
 {
   "name": "alpago-it-portal",
   "version": "1.0.0",
-  "description": "Alpago Group IT Portal \u2014 assets, helpdesk, employees, licenses and admin",
+  "description": "Alpago Group IT Portal — assets, helpdesk, employees, licenses and admin",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -12,6 +12,7 @@
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.2",
+    "exceljs": "^4.4.0",
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.4",
     "helmet": "^8.3.0",
