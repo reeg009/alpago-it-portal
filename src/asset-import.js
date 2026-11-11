@@ -201,19 +201,18 @@ async function runImport(buffer, { commit, userId }) {
       if (holders.length > 1) { flags.push(`Sheet lists more than one current holder: ${holders.join(', ')}`); report.doubleAssigned.push(`${label}: ${holders.join(' / ')}`); }
       if (current?.status === 'NOT RETURNED') flags.push('Marked NOT RETURNED in the sheet');
 
-      let assignedTo = null; let status = 'In Stock'; let sheetHolder = null;
+      // Tag only on a confident name match; otherwise leave the tag empty (first-name-only fits become a suggestion)
+      let assignedTo = null; let status = 'In Stock'; let sheetHolder = null; let suggested = null;
       if (current && current.holder) {
         const m = match(current.holder);
-        if (m?.person) {
-          assignedTo = m.person.id; status = 'Assigned';
-          if (m.weak) { flags.push(`Matched "${current.holder}" to ${m.person.full_name} on one name only — please confirm`); report.weak.push(`${label}: ${current.holder} → ${m.person.full_name}`); }
-        }
+        if (m?.person && !m.weak) { assignedTo = m.person.id; status = 'Assigned'; }
         else {
           sheetHolder = current.holder;
           status = 'In Use';
-          if (!current.isInfra) {
-            if (m?.ambiguous) { flags.push(`Holder "${current.holder}" matches several employees: ${m.ambiguous.join(', ')}`); report.ambiguous.push(`${label} → ${current.holder}`); }
-            else { flags.push(`Holder "${current.holder}" not found in employees`); report.unmatched.push(`${label} → ${current.holder}`); }
+          if (m?.person && m.weak) { suggested = m.person.id; report.weak.push(`${label}: ${current.holder} → ${m.person.full_name}?`); }
+          else if (!current.isInfra) {
+            if (m?.ambiguous) report.ambiguous.push(`${label} → ${current.holder} (could be ${m.ambiguous.join(', ')})`);
+            else report.unmatched.push(`${label} → ${current.holder}`);
           }
         }
       } else if (current) {
@@ -228,7 +227,7 @@ async function runImport(buffer, { commit, userId }) {
         entity_id: person?.entity_id || null, assigned_to: assignedTo,
         os: latest(rows, 'os'), processor: latest(rows, 'processor'), ram: latest(rows, 'ram'), storage: latest(rows, 'storage'),
         graphics: latest(rows, 'graphics'), remote_id: latest(rows, 'remote_id'), notes,
-        sheet_holder: sheetHolder, review_flag: flags.join(' · ') || null,
+        sheet_holder: sheetHolder, suggested_user_id: suggested, review_flag: flags.join(' · ') || null,
       };
 
       const existing = (await c.query(
@@ -239,7 +238,7 @@ async function runImport(buffer, { commit, userId }) {
         // keep manual fixes: an unmatched sheet holder never removes an assignment made in the portal,
         // and an already-reviewed assignment to the same person stays reviewed
         if (existing.assigned_to && !fields.assigned_to && fields.sheet_holder) {
-          Object.assign(fields, { assigned_to: existing.assigned_to, status: 'Assigned', sheet_holder: null, review_flag: null });
+          Object.assign(fields, { assigned_to: existing.assigned_to, status: 'Assigned', sheet_holder: null, suggested_user_id: null, review_flag: null });
           const p2 = people.find((p) => p.id === existing.assigned_to); fields.entity_id = p2?.entity_id || fields.entity_id;
           assignedTo = existing.assigned_to;
         } else if (!existing.review_flag && existing.assigned_to && existing.assigned_to === fields.assigned_to) {
@@ -269,7 +268,7 @@ async function runImport(buffer, { commit, userId }) {
         for (const r of rows) {
           if (!r.holder) continue;
           const m = match(r.holder);
-          const pid = m?.person?.id || null;
+          const pid = m?.person && !m.weak ? m.person.id : null;
           const returned = r.status === 'RETURNED';
           await c.query('INSERT INTO asset_history (asset_id, action, from_user, to_user, performed_by, note, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)',
             [aid, returned ? 'Returned' : 'Assigned', returned ? pid : null, returned ? null : pid, userId,

@@ -148,6 +148,7 @@ async function list(ctx) {
   el.innerHTML = str(html`
   <div class="page-head"><div><h2>Asset Inventory</h2><p class="muted">Hardware across all Alpago Group entities.</p></div>
     <div class="actions"><button class="btn" data-export>${icon('download', 17)} Export CSV</button>
+    ${can('assets.assign') ? html`<a class="btn" href="#/assets/tagging">${icon('userPlus', 17)} Tag Assets</a>` : ''}
     ${can('assets.manage') ? html`<button class="btn" data-import>${icon('file', 17)} Import from IT sheet</button>
       <button class="btn btn-primary" data-add>${icon('plus', 18)} Add Asset</button>` : ''}</div></div>
   <div class="card">
@@ -175,7 +176,7 @@ async function list(ctx) {
         <td class="mono">${a.asset_tag}</td>
         <td><div class="cell-asset"><span class="thumb sm">${icon(categoryIcon(a.category), 17)}</span><div><b>${a.name}</b><span class="muted small">${a.serial_number || ''}</span></div></div></td>
         <td>${a.category}</td><td>${badge(a.status)} ${a.review_flag ? html`<span title="${a.review_flag}">${badge('Review', 'amber')}</span>` : ''}</td>
-        <td>${a.assigned_name || (a.sheet_holder ? html`<span class="muted" title="Name in IT sheet — not matched">${a.sheet_holder} ${icon('alert', 13)}</span>` : html`<span class="muted">—</span>`)}</td>
+        <td>${a.assigned_name || (a.sheet_holder ? html`<span class="muted" title="Not tagged — name in IT sheet">Not tagged · ${a.sheet_holder}</span>` : html`<span class="muted">—</span>`)}</td>
         <td class="muted">${a.entity_name || '—'}</td>
         <td class="nowrap ${a.warranty_expiry && new Date(a.warranty_expiry) < new Date() ? 'txt-red' : ''}">${fmtDate(a.warranty_expiry)}</td>
         <td class="row-actions">${can('assets.assign') && a.status !== 'Retired' ? html`<button class="icon-btn" title="Assign" data-assign="${a.id}">${icon('userPlus', 17)}</button>` : ''}</td>
@@ -227,6 +228,9 @@ async function detail(ctx, id) {
     </div>
   </div>
 
+  ${!a.assigned_to && a.sheet_holder && !a.review_flag ? html`<div class="note review-note">${icon('userPlus', 16)}<span><b>Not tagged.</b> Name in IT sheet: <b>${a.sheet_holder}</b>${a.suggested_name ? html` · Suggested: <b>${a.suggested_name}</b>` : ''}</span>
+    <span class="grow"></span>${can('assets.assign') ? html`${a.suggested_user_id ? html`<button class="btn btn-sm btn-success" data-accept>${icon('check', 14)} Tag ${a.suggested_name}</button>` : ''}
+      <button class="btn btn-sm" data-assign2>${icon('userPlus', 14)} Tag employee</button>` : ''}</div>` : ''}
   ${a.review_flag ? html`<div class="note review-note">${icon('alert', 16)}<span><b>Needs review:</b> ${a.review_flag}${a.sheet_holder ? html` · Name in IT sheet: <b>${a.sheet_holder}</b>` : ''}</span>
     <span class="grow"></span>${can('assets.assign') ? html`${a.assigned_to ? html`<button class="btn btn-sm btn-success" data-confirm>${icon('check', 14)} Confirm ${a.assigned_name}</button>` : ''}
       <button class="btn btn-sm" data-assign2>${icon('userPlus', 14)} ${a.assigned_to ? 'Change holder' : 'Assign holder'}</button>
@@ -263,6 +267,7 @@ async function detail(ctx, id) {
 
   el.querySelectorAll('tr[data-href]').forEach((r) => r.addEventListener('click', () => { location.hash = r.dataset.href; }));
   el.querySelector('[data-assign]')?.addEventListener('click', () => assignForm(ctx, a, refresh));
+  el.querySelector('[data-accept]')?.addEventListener('click', () => api.post('/assets/tag', { items: [{ asset_id: a.id, user_id: a.suggested_user_id }] }).then(() => { toast('Tagged'); refresh(); }).catch(toastErr));
   el.querySelector('[data-assign2]')?.addEventListener('click', () => assignForm(ctx, a, refresh));
   el.querySelector('[data-confirm]')?.addEventListener('click', () => api.post(`/assets/${a.id}/confirm`, {}).then(() => { toast('Marked as reviewed'); refresh(); }).catch(toastErr));
   el.querySelector('[data-transfer]')?.addEventListener('click', () => transferForm(ctx, a, refresh));
@@ -281,7 +286,88 @@ async function detail(ctx, id) {
   });
 }
 
+// ---------- tagging ----------
+async function tagging(ctx) {
+  const { el, lookups } = ctx;
+  ctx.setTitle('Tag Assets');
+  const q = { untagged: '1', has_sheet_holder: '1', page: 1, pageSize: 50, sort: 'category', ...ctx.query };
+  const people = lookups.users.map((u) => ({ id: u.id, label: `${u.full_name}${u.department ? ` — ${u.department}` : ''}` }));
+  const byLabel = new Map(people.map((p) => [p.label.toUpperCase(), p.id]));
+  const byName = new Map(lookups.users.map((u) => [u.full_name.toUpperCase(), u.id]));
+  const resolve = (v) => byLabel.get(v.trim().toUpperCase()) || byName.get(v.trim().toUpperCase()) || null;
+  const labelFor = (id) => people.find((p) => p.id === id)?.label || '';
+
+  el.innerHTML = str(html`
+  <a class="back" href="#/assets">${icon('chevLeft', 16)} Assets</a>
+  <div class="page-head"><div><h2>Tag assets to employees</h2>
+    <p class="muted">Assets with no employee tag. Type to search an employee, then tag one row or save all rows you've filled in.</p></div>
+    <div class="actions"><button class="btn" data-accept-all>${icon('check', 16)} Accept all suggestions</button>
+      <button class="btn btn-primary" data-save-all>${icon('userPlus', 16)} Tag filled rows</button></div></div>
+  <div class="card">
+    <div class="filters">
+      <div class="search">${icon('search', 17)}<input name="q" placeholder="Search tag, device, serial, name in sheet…" value="${q.q || ''}"></div>
+      <select name="view">
+        <option value="inuse" ${q.has_sheet_holder === '1' && !q.suggested ? 'selected' : ''}>In use — not tagged</option>
+        <option value="suggested" ${q.suggested === '1' ? 'selected' : ''}>With a suggested employee</option>
+        <option value="all" ${!q.has_sheet_holder && !q.suggested ? 'selected' : ''}>All untagged (incl. stock)</option></select>
+      <select name="category"><option value="">All categories</option>${lookups.categories.map((c) => html`<option ${c === q.category ? 'selected' : ''}>${c}</option>`)}</select>
+    </div>
+    <datalist id="people">${people.map((p) => html`<option value="${p.label}"></option>`)}</datalist>
+    <div data-results>${spinner()}</div>
+  </div>`);
+
+  const results = el.querySelector('[data-results]');
+  let rows = [];
+  const load = async () => {
+    const d = await api.get(`/assets?${new URLSearchParams(Object.entries(q).filter(([, v]) => v !== '' && v !== undefined)).toString()}`);
+    if (!ctx.alive()) return;
+    rows = d.rows;
+    results.innerHTML = str(d.rows.length ? html`<div class="table-wrap"><table class="table tag-table">
+      <thead><tr><th>Asset</th><th>Category</th><th>Name in IT sheet</th><th style="min-width:340px">Employee</th><th></th></tr></thead>
+      <tbody>${d.rows.map((a) => html`<tr data-id="${a.id}">
+        <td><a href="#/assets/${a.id}"><b>${a.asset_tag}</b></a><div class="muted small">${a.name}${a.serial_number ? ` · ${a.serial_number}` : ''}</div></td>
+        <td>${a.category}</td>
+        <td>${a.sheet_holder ? html`<b>${a.sheet_holder}</b>` : html`<span class="muted">—</span>`}</td>
+        <td><input class="tag-input" list="people" placeholder="Search employee…" value="${a.suggested_user_id ? labelFor(a.suggested_user_id) : ''}">
+          ${a.suggested_name ? html`<div class="small suggest">${icon('check', 12)} Suggested from sheet name</div>` : ''}</td>
+        <td class="nowrap"><button class="btn btn-sm btn-primary" data-tag>Tag</button></td></tr>`)}</tbody></table></div>
+      ${pager(d.total, d.page, d.pageSize)}` : empty('Nothing left to tag here', 'check'));
+    results.querySelectorAll('[data-page]').forEach((b) => b.addEventListener('click', () => { q.page = +b.dataset.page; load(); }));
+    results.querySelectorAll('.tag-input').forEach((inp) => inp.addEventListener('input', () => {
+      inp.classList.toggle('ok', !!resolve(inp.value)); inp.classList.toggle('bad', !!inp.value.trim() && !resolve(inp.value));
+    }));
+    results.querySelectorAll('.tag-input').forEach((inp) => inp.dispatchEvent(new Event('input')));
+    results.querySelectorAll('[data-tag]').forEach((b) => b.addEventListener('click', () => {
+      const tr = b.closest('tr'); const uid = resolve(tr.querySelector('.tag-input').value);
+      if (!uid) { toastErr(new Error('Pick an employee from the list')); return; }
+      send([{ asset_id: +tr.dataset.id, user_id: uid }]);
+    }));
+  };
+  const send = async (items) => {
+    if (!items.length) { toastErr(new Error('No rows with a valid employee')); return; }
+    try { const r = await api.post('/assets/tag', { items }); toast(`${r.tagged} asset${r.tagged === 1 ? '' : 's'} tagged`); await load(); } catch (e) { toastErr(e); }
+  };
+  el.querySelector('[data-save-all]').addEventListener('click', () => send([...results.querySelectorAll('tr[data-id]')]
+    .map((tr) => ({ asset_id: +tr.dataset.id, user_id: resolve(tr.querySelector('.tag-input').value) })).filter((x) => x.user_id)));
+  el.querySelector('[data-accept-all]').addEventListener('click', async () => {
+    const d = await api.get('/assets?suggested=1&pageSize=200');
+    if (!d.rows.length) { toast('No suggestions left'); return; }
+    if (!(await confirmBox('Accept all suggestions', `Tag ${d.rows.length} assets to the suggested employee (matched on the name in the IT sheet)? You can change any of them later.`, { okText: `Tag ${d.rows.length}` }))) return;
+    send(d.rows.map((a) => ({ asset_id: a.id, user_id: a.suggested_user_id })));
+  });
+  el.querySelector('[name=q]').addEventListener('input', debounce((e) => { q.q = e.target.value; q.page = 1; load().catch(toastErr); }, 300));
+  el.querySelector('[name=category]').addEventListener('change', (e) => { q.category = e.target.value; q.page = 1; load().catch(toastErr); });
+  el.querySelector('[name=view]').addEventListener('change', (e) => {
+    delete q.has_sheet_holder; delete q.suggested;
+    if (e.target.value === 'inuse') q.has_sheet_holder = '1';
+    if (e.target.value === 'suggested') q.suggested = '1';
+    q.page = 1; load().catch(toastErr);
+  });
+  await load();
+}
+
 export async function render(ctx) {
+  if (ctx.params[0] === 'tagging') { if (!ctx.can('assets.assign')) { location.hash = '#/assets'; return; } return tagging(ctx); }
   if (ctx.params[0]) return detail(ctx, ctx.params[0]);
   if (!ctx.can('assets.view')) { location.hash = '#/my'; return; }
   return list(ctx);

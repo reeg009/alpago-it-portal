@@ -20,6 +20,7 @@ const NAV = [
   { key: 'my', label: 'My Requests', icon: 'file', href: '#/my' , show: () => true },
   { key: 'assets', label: 'Assets', icon: 'monitor', show: () => can('assets.view'), children: [
     { label: 'All Assets', href: '#/assets' },
+    { label: 'Tag Assets', href: '#/assets/tagging', show: () => can('assets.assign') },
     { label: 'Warranty Expiring', href: '#/assets?warranty=expiring' },
     { label: 'In Stock', href: '#/assets?status=In%20Stock' },
   ] },

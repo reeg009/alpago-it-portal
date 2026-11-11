@@ -195,3 +195,4 @@ ALTER TABLE assets ADD COLUMN IF NOT EXISTS review_flag TEXT;
 CREATE INDEX IF NOT EXISTS idx_assets_serial ON assets (upper(serial_number));
 ALTER TABLE assets ADD COLUMN IF NOT EXISTS import_key TEXT;
 CREATE INDEX IF NOT EXISTS idx_assets_import_key ON assets (import_key);
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS suggested_user_id INT REFERENCES users(id) ON DELETE SET NULL;

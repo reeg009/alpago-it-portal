@@ -52,8 +52,10 @@ router.get('/dashboard', requirePerm('dashboard.view'), wrap(async (req, res) =>
   const alerts = [];
   if (req.can('assets.view')) {
     const w = await one(`SELECT COUNT(*)::int AS n FROM assets WHERE status <> 'Retired' AND warranty_expiry BETWEEN CURRENT_DATE AND CURRENT_DATE + 90`);
+    const ut = await one(`SELECT COUNT(*)::int AS n FROM assets WHERE assigned_to IS NULL AND sheet_holder IS NOT NULL AND status <> 'Retired'`);
+    if (ut.n) alerts.push({ type: 'review', level: 'warn', count: ut.n, text: `${ut.n} assets in use but not tagged`, sub: 'tag them to employees', link: '#/assets/tagging' });
     const rv = await one(`SELECT COUNT(*)::int AS n FROM assets WHERE review_flag IS NOT NULL`);
-    if (rv.n) alerts.push({ type: 'review', level: 'warn', count: rv.n, text: `${rv.n} imported assets need review`, sub: 'holder not matched or double-assigned', link: '#/assets?review=1' });
+    if (rv.n) alerts.push({ type: 'review', level: 'warn', count: rv.n, text: `${rv.n} assets flagged for review`, sub: 'e.g. two holders in the IT sheet', link: '#/assets?review=1' });
     if (w.n) alerts.push({ type: 'warranty', level: 'info', count: w.n, text: `${w.n} assets under warranty expiry`, sub: 'in next 90 days', link: '#/assets?warranty=expiring' });
   }
   if (req.can('licenses.view')) {

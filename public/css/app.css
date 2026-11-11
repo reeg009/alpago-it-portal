@@ -302,6 +302,13 @@ kbd { font-family: inherit; font-size: 11px; background: #f1f5f9; border: 1px so
 .review-note { background: #fffbeb; border-color: #fde68a; align-items: center; flex-wrap: wrap; }
 .review-note .btn { margin-left: 6px; }
 
+.tag-input { width: 100%; border: 1px solid #d9dfe8; border-radius: 8px; padding: 7px 10px; outline: none; }
+.tag-input:focus { border-color: #7aa2f2; box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+.tag-input.ok { border-color: #86d3a0; background: #f4fbf6; }
+.tag-input.bad { border-color: #f3b4b4; }
+.suggest { color: #15803d; display: flex; align-items: center; gap: 4px; margin-top: 3px; }
+.tag-table td { vertical-align: top; }
+
 /* modal */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: flex; align-items: flex-start; justify-content: center; z-index: 100; padding: 6vh 16px; overflow-y: auto; animation: fade .15s; }
 .modal-backdrop.out { opacity: 0; transition: opacity .15s; }

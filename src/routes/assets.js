@@ -14,8 +14,10 @@ const SORTS = { asset_tag: 'a.asset_tag', name: 'a.name', category: 'a.category'
 const BASE = `
   FROM assets a
   LEFT JOIN entities e ON e.id = a.entity_id
-  LEFT JOIN users u ON u.id = a.assigned_to`;
-const COLS = `a.*, e.name AS entity_name, u.full_name AS assigned_name, u.email AS assigned_email`;
+  LEFT JOIN users u ON u.id = a.assigned_to
+  LEFT JOIN users sg ON sg.id = a.suggested_user_id`;
+const COLS = `a.*, e.name AS entity_name, u.full_name AS assigned_name, u.email AS assigned_email,
+              sg.full_name AS suggested_name, sg.department AS suggested_department`;
 
 function filters(q) {
   const where = [];
@@ -31,6 +33,9 @@ function filters(q) {
   if (q.entity_id) add('a.entity_id = ?', int(q.entity_id));
   if (q.assigned_to) add('a.assigned_to = ?', int(q.assigned_to));
   if (q.review === '1') where.push('a.review_flag IS NOT NULL');
+  if (q.untagged === '1') where.push("a.assigned_to IS NULL AND a.status <> 'Retired'");
+  if (q.suggested === '1') where.push('a.suggested_user_id IS NOT NULL AND a.assigned_to IS NULL');
+  if (q.has_sheet_holder === '1') where.push('a.sheet_holder IS NOT NULL');
   if (q.warranty === 'expiring') where.push("a.warranty_expiry BETWEEN CURRENT_DATE AND CURRENT_DATE + 90 AND a.status <> 'Retired'");
   if (q.warranty === 'expired') where.push('a.warranty_expiry < CURRENT_DATE');
   return { where: where.length ? `WHERE ${where.join(' AND ')}` : '', vals };
@@ -136,7 +141,7 @@ router.post('/:id/assign', requirePerm('assets.assign'), wrap(async (req, res) =
     if (a.status === 'Retired') throw bad('Retired assets cannot be assigned');
     const u = (await c.query('SELECT id, entity_id FROM users WHERE id = $1 AND is_active', [userId])).rows[0];
     if (!u) throw bad('Employee not found or inactive');
-    await c.query("UPDATE assets SET assigned_to = $1, assigned_at = now(), status = 'Assigned', sheet_holder = NULL, review_flag = NULL, updated_at = now() WHERE id = $2", [userId, id]);
+    await c.query("UPDATE assets SET assigned_to = $1, assigned_at = now(), status = 'Assigned', sheet_holder = NULL, review_flag = NULL, suggested_user_id = NULL, updated_at = now() WHERE id = $2", [userId, id]);
     await c.query(`INSERT INTO asset_history (asset_id, action, from_user, to_user, performed_by, note)
                    VALUES ($1, $2, $3, $4, $5, $6)`,
       [id, a.assigned_to ? 'Reassigned' : 'Assigned', a.assigned_to, userId, req.user.id, nil(req.body.note)]);
@@ -152,7 +157,7 @@ router.post('/:id/unassign', requirePerm('assets.assign'), wrap(async (req, res)
     const a = (await c.query('SELECT * FROM assets WHERE id = $1 FOR UPDATE', [id])).rows[0];
     if (!a) throw notFound('Asset');
     if (!a.assigned_to) throw bad('Asset is not assigned');
-    await c.query("UPDATE assets SET assigned_to = NULL, assigned_at = NULL, status = $2, sheet_holder = NULL, review_flag = NULL, updated_at = now() WHERE id = $1",
+    await c.query("UPDATE assets SET assigned_to = NULL, assigned_at = NULL, status = $2, sheet_holder = NULL, review_flag = NULL, suggested_user_id = NULL, updated_at = now() WHERE id = $1",
       [id, req.body.status || 'In Stock']);
     await c.query("INSERT INTO asset_history (asset_id, action, from_user, performed_by, note) VALUES ($1,'Returned',$2,$3,$4)",
       [id, a.assigned_to, req.user.id, nil(req.body.note)]);
@@ -186,6 +191,32 @@ router.post('/:id/transfer', requirePerm('assets.assign'), wrap(async (req, res)
   });
   await audit(req.user.id, 'asset.transfer', 'asset', id, { entity_id: toEntity, user_id: toUser, location });
   res.json({ ok: true });
+}));
+
+// Tag one or many assets to employees: { items: [{ asset_id, user_id }] }
+router.post('/tag', requirePerm('assets.assign'), wrap(async (req, res) => {
+  const items = Array.isArray(req.body.items) ? req.body.items : [];
+  if (!items.length) throw bad('Nothing to tag');
+  if (items.length > 1000) throw bad('Too many items at once');
+  const done = await tx(async (c) => {
+    let n = 0;
+    for (const it of items) {
+      const aid = int(it.asset_id); const uid = int(it.user_id);
+      if (!aid || !uid) continue;
+      const a = (await c.query('SELECT id, assigned_to, status FROM assets WHERE id = $1 FOR UPDATE', [aid])).rows[0];
+      if (!a || a.status === 'Retired') continue;
+      const u = (await c.query('SELECT id, entity_id FROM users WHERE id = $1', [uid])).rows[0];
+      if (!u) continue;
+      await c.query(`UPDATE assets SET assigned_to = $1, assigned_at = now(), status = 'Assigned', entity_id = COALESCE(entity_id, $3),
+                       sheet_holder = NULL, suggested_user_id = NULL, review_flag = NULL, updated_at = now() WHERE id = $2`, [uid, aid, u.entity_id]);
+      await c.query("INSERT INTO asset_history (asset_id, action, from_user, to_user, performed_by, note) VALUES ($1,'Tagged',$2,$3,$4,'Tagged to employee')",
+        [aid, a.assigned_to, uid, req.user.id]);
+      n++;
+    }
+    return n;
+  });
+  await audit(req.user.id, 'asset.tag', 'asset', null, { count: done });
+  res.json({ tagged: done });
 }));
 
 router.post('/:id/confirm', requirePerm('assets.assign', 'assets.manage'), wrap(async (req, res) => {
