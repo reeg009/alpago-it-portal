@@ -252,6 +252,9 @@ async function detail(ctx, id) {
     <div class="table-wrap"><table class="table compact"><tbody>${u.reports.map((r) => html`<tr data-href="#/employees/${r.id}">
       <td><div class="cell-user">${avatar(r.full_name, 28)}<b>${r.full_name}</b></div></td><td class="muted">${r.job_title || ''}</td><td>${badge(r.is_active ? 'Active' : 'Inactive')}</td></tr>`)}</tbody></table></div></div>` : ''}
 
+  ${u.lines?.length ? html`<div class="card"><div class="card-head"><h3>Phone &amp; ISP lines <span class="count">${u.lines.length}</span></h3><a class="link" href="#/isp">ISP &amp; Telecom ${icon('arrowRight', 15)}</a></div>
+    <div class="table-wrap"><table class="table compact"><tbody>${u.lines.map((l) => html`<tr><td class="mono">${l.account || '—'}</td><td>${l.provider}</td><td class="muted">${l.product_category || ''}</td><td>${l.package ? `Package ${l.package}` : ''}</td><td>${badge(l.list, l.list === 'Active' ? 'green' : 'gray')}</td></tr>`)}</tbody></table></div></div>` : ''}
+
   <div class="card"><div class="card-head"><h3>Assigned Equipment <span class="count">${u.assets.length}</span></h3></div>
     ${u.assets.length ? html`<div class="table-wrap"><table class="table"><thead><tr><th>Asset tag</th><th>Asset</th><th>Category</th><th>Status</th><th>Since</th></tr></thead>
       <tbody>${u.assets.map((x) => html`<tr data-href="#/assets/${x.id}"><td class="mono">${x.asset_tag}</td><td><div class="cell-asset"><span class="thumb sm">${icon(categoryIcon(x.category), 16)}</span><b>${x.name}</b></div></td><td>${x.category}</td><td>${badge(x.status)}</td><td class="muted">${fmtDate(x.assigned_at)}</td></tr>`)}</tbody></table></div>`

@@ -38,6 +38,17 @@ async function migrate() {
       }
     }
   }
+  // One-time: give the new ISP permissions to existing IT Technician / Manager roles
+  await query('CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT, created_at TIMESTAMPTZ DEFAULT now())');
+  if (!(await query("SELECT 1 FROM app_meta WHERE key = 'perm-seed:isp'")).rows[0]) {
+    await query(`INSERT INTO role_permissions (role_id, permission_key)
+                 SELECT r.id, p FROM roles r, unnest(ARRAY['isp.view','isp.manage']) p WHERE r.name = 'IT Technician'
+                 ON CONFLICT DO NOTHING`);
+    await query(`INSERT INTO role_permissions (role_id, permission_key)
+                 SELECT r.id, 'isp.view' FROM roles r WHERE r.name = 'Manager' ON CONFLICT DO NOTHING`);
+    await query("INSERT INTO app_meta (key, value) VALUES ('perm-seed:isp', 'done')");
+  }
+
   // Administrator always has every permission
   await query(
     `INSERT INTO role_permissions (role_id, permission_key)

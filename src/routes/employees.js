@@ -80,7 +80,10 @@ router.get('/:id', requirePerm('employees.view'), wrap(async (req, res) => {
     'SELECT id, ticket_no, subject, status, priority, created_at FROM tickets WHERE requester_id = $1 ORDER BY created_at DESC LIMIT 20', [id])).rows;
   const reports = (await query(
     'SELECT id, full_name, job_title, is_active FROM users WHERE reporting_manager_id = $1 ORDER BY is_active DESC, full_name', [id])).rows;
-  res.json({ ...u, assets, licenses, tickets, reports });
+  const lines = (await query(
+    `SELECT id, provider, list, account, product_category, package, designation FROM isp_lines
+      WHERE employee_id = $1 ORDER BY list, sort_order`, [id])).rows;
+  res.json({ ...u, assets, licenses, tickets, reports, lines });
 }));
 
 router.post('/', requirePerm('employees.manage'), wrap(async (req, res) => {

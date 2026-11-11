@@ -309,6 +309,12 @@ kbd { font-family: inherit; font-size: 11px; background: #f1f5f9; border: 1px so
 .suggest { color: #15803d; display: flex; align-items: center; gap: 4px; margin-top: 3px; }
 .tag-table td { vertical-align: top; }
 
+.sheet { font-size: 12.5px; }
+.sheet th, .sheet td { padding: 8px 10px; border-right: 1px solid var(--line-2); }
+.sheet td.wrap-cell { min-width: 220px; max-width: 320px; white-space: normal; }
+.sheet-wrap { max-height: calc(100vh - 330px); overflow: auto; }
+.sheet thead th { position: sticky; top: 0; z-index: 1; }
+
 /* modal */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: flex; align-items: flex-start; justify-content: center; z-index: 100; padding: 6vh 16px; overflow-y: auto; animation: fade .15s; }
 .modal-backdrop.out { opacity: 0; transition: opacity .15s; }

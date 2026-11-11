@@ -12,6 +12,8 @@ const PERMISSIONS = [
   ['employees.manage', 'Employees', 'Add and edit employees'],
   ['licenses.view', 'Licenses', 'View software licenses'],
   ['licenses.manage', 'Licenses', 'Add, edit and assign licenses'],
+  ['isp.view', 'ISP & Telecom', 'View ISP lines and numbers'],
+  ['isp.manage', 'ISP & Telecom', 'Add, edit and import ISP lines'],
   ['reports.view', 'Reports', 'View reports'],
   ['admin.users', 'Admin', 'Manage user accounts and roles assignment'],
   ['admin.entities', 'Admin', 'Manage company entities'],
@@ -28,12 +30,12 @@ const DEFAULT_ROLES = {
     perms: [
       'dashboard.view', 'assets.view', 'assets.manage', 'assets.assign',
       'tickets.view_all', 'tickets.manage', 'tickets.internal_notes',
-      'employees.view', 'licenses.view', 'licenses.manage', 'reports.view',
+      'employees.view', 'licenses.view', 'licenses.manage', 'reports.view', 'isp.view', 'isp.manage',
     ],
   },
   Manager: {
     description: 'Approves IT requests for their team',
-    perms: ['dashboard.view', 'requests.approve', 'employees.view', 'assets.view', 'licenses.view', 'reports.view'],
+    perms: ['dashboard.view', 'requests.approve', 'employees.view', 'assets.view', 'licenses.view', 'reports.view', 'isp.view'],
   },
   Employee: {
     description: 'Self-service: own equipment and requests',

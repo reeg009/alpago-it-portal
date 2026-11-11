@@ -9,6 +9,7 @@ import * as licenses from './views/licenses.js';
 import * as portal from './views/portal.js';
 import * as reports from './views/reports.js';
 import * as admin from './views/admin.js';
+import * as isp from './views/isp.js';
 
 const root = document.getElementById('app');
 const state = { user: null, lookups: null, alerts: [] };
@@ -32,6 +33,7 @@ const NAV = [
     { label: 'Raised by Me', href: '#/tickets?mine=requested' },
   ] },
   { key: 'licenses', label: 'Software & Licenses', icon: 'key', href: '#/licenses', show: () => can('licenses.view') },
+  { key: 'isp', label: 'ISP & Telecom', icon: 'phone', href: '#/isp', show: () => can('isp.view') },
   { key: 'employees', label: 'Employees', icon: 'users', href: '#/employees', show: () => can('employees.view') },
   { key: 'reports', label: 'Reports', icon: 'chart', href: '#/reports', show: () => can('reports.view') },
   { divider: true },
@@ -51,6 +53,7 @@ const ROUTES = {
   employees: { view: employees, title: 'Employees' },
   licenses: { view: licenses, title: 'Software & Licenses' },
   reports: { view: reports, title: 'Reports' },
+  isp: { view: isp, title: 'ISP & Telecom' },
   admin: { view: admin, title: 'Admin' },
 };
 

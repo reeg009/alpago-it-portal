@@ -35,6 +35,7 @@ app.use('/api/tickets', require('./src/routes/tickets'));
 app.use('/api/employees', require('./src/routes/employees'));
 app.use('/api/licenses', require('./src/routes/licenses'));
 app.use('/api/admin', require('./src/routes/admin'));
+app.use('/api/isp', require('./src/routes/isp'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
 // Always revalidate app files so new deploys show up immediately (ETag keeps it cheap)

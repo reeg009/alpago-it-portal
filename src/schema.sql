@@ -196,3 +196,42 @@ CREATE INDEX IF NOT EXISTS idx_assets_serial ON assets (upper(serial_number));
 ALTER TABLE assets ADD COLUMN IF NOT EXISTS import_key TEXT;
 CREATE INDEX IF NOT EXISTS idx_assets_import_key ON assets (import_key);
 ALTER TABLE assets ADD COLUMN IF NOT EXISTS suggested_user_id INT REFERENCES users(id) ON DELETE SET NULL;
+
+-- ---------- ISP / telecom lines (mirrors the Etisalat sheet) ----------
+CREATE TABLE IF NOT EXISTS isp_lines (
+  id SERIAL PRIMARY KEY,
+  provider TEXT NOT NULL DEFAULT 'Etisalat',
+  list TEXT NOT NULL DEFAULT 'Active',          -- Active | Cancelled
+  sl_no TEXT,
+  entity TEXT,
+  account TEXT,
+  account_name TEXT,
+  product_category TEXT,
+  product_type TEXT,
+  activation_date DATE,
+  status TEXT,
+  party_id TEXT,
+  limit_amount TEXT,
+  package TEXT,
+  holder_name TEXT,
+  designation TEXT,
+  remarks TEXT,
+  comments TEXT,
+  employee_id INT REFERENCES users(id) ON DELETE SET NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_isp_lines_list ON isp_lines (provider, list, sort_order);
+
+CREATE TABLE IF NOT EXISTS isp_contacts (
+  id SERIAL PRIMARY KEY,
+  provider TEXT NOT NULL DEFAULT 'Etisalat',
+  sl_no TEXT,
+  name TEXT NOT NULL,
+  entities TEXT,
+  email TEXT,
+  phone TEXT,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
