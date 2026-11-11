@@ -37,8 +37,12 @@ app.use('/api/licenses', require('./src/routes/licenses'));
 app.use('/api/admin', require('./src/routes/admin'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
-app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h', index: 'index.html' }));
-app.get('/{*splat}', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+// Always revalidate app files so new deploys show up immediately (ETag keeps it cheap)
+app.use(express.static(path.join(__dirname, 'public'), {
+  index: 'index.html',
+  setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
+}));
+app.get('/{*splat}', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'index.html')); });
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
