@@ -52,6 +52,8 @@ router.get('/dashboard', requirePerm('dashboard.view'), wrap(async (req, res) =>
   const alerts = [];
   if (req.can('assets.view')) {
     const w = await one(`SELECT COUNT(*)::int AS n FROM assets WHERE status <> 'Retired' AND warranty_expiry BETWEEN CURRENT_DATE AND CURRENT_DATE + 90`);
+    const rv = await one(`SELECT COUNT(*)::int AS n FROM assets WHERE review_flag IS NOT NULL`);
+    if (rv.n) alerts.push({ type: 'review', level: 'warn', count: rv.n, text: `${rv.n} imported assets need review`, sub: 'holder not matched or double-assigned', link: '#/assets?review=1' });
     if (w.n) alerts.push({ type: 'warranty', level: 'info', count: w.n, text: `${w.n} assets under warranty expiry`, sub: 'in next 90 days', link: '#/assets?warranty=expiring' });
   }
   if (req.can('licenses.view')) {
@@ -88,7 +90,7 @@ router.get('/lookups', wrap(async (req, res) => {
   const roles = req.can('admin.users') ? (await query('SELECT id, name FROM roles ORDER BY id')).rows : [];
   res.json({
     entities, technicians, users, roles, departments,
-    categories: [...new Set(['Laptop', 'Desktop', 'Monitor', 'Mobile', 'Printer', 'Network', 'Tablet', 'Peripheral', 'Server', ...categories])],
+    categories: [...new Set(['Laptop', 'Desktop', 'Monitor', 'Mobile', 'Tablet', 'Printer', 'Network', 'Server', 'Peripheral', 'Other', ...categories])],
     assetStatuses: ['In Stock', 'Assigned', 'In Use', 'In Repair', 'Retired'],
   });
 }));

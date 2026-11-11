@@ -1,5 +1,5 @@
-import { api } from '../api.js';
-import { html, str, icon, badge, fmtDate, fmtDateTime, fmtMoney, ago, categoryIcon, empty, pager, formModal, confirmBox, toast, toastErr, opts, debounce, spinner } from '../ui.js';
+import { api, auth } from '../api.js';
+import { html, str, icon, badge, fmtDate, fmtDateTime, fmtMoney, ago, categoryIcon, empty, pager, formModal, confirmBox, toast, toastErr, opts, debounce, spinner, modal, fmtNum } from '../ui.js';
 
 const assetFields = (ctx, a = {}) => [
   { name: 'asset_tag', label: 'Asset tag', required: true, value: a.asset_tag },
@@ -17,6 +17,14 @@ const assetFields = (ctx, a = {}) => [
   { name: 'purchase_date', label: 'Purchase date', type: 'date', value: a.purchase_date },
   { name: 'purchase_cost', label: 'Purchase cost (AED)', type: 'number', step: '0.01', value: a.purchase_cost },
   { name: 'warranty_expiry', label: 'Warranty expiry', type: 'date', value: a.warranty_expiry },
+  { name: 'purchase_ref', label: 'Purchase ref (PR No.)', value: a.purchase_ref },
+  { type: 'heading', label: 'Specifications' },
+  { name: 'os', label: 'Operating system', value: a.os },
+  { name: 'processor', label: 'Processor', value: a.processor },
+  { name: 'ram', label: 'RAM', value: a.ram },
+  { name: 'storage', label: 'Storage', value: a.storage },
+  { name: 'graphics', label: 'Graphics', value: a.graphics },
+  { name: 'remote_id', label: 'AnyDesk ID', value: a.remote_id },
   { name: 'notes', label: 'Notes', type: 'textarea', full: true, rows: 3, value: a.notes },
 ];
 
@@ -67,6 +75,72 @@ export function transferForm(ctx, a, done) {
   });
 }
 
+// ---------- IT sheet import ----------
+function importModal(done) {
+  let file = null;
+  const send = async (commit) => {
+    const res = await fetch(`/api/assets/import${commit ? '?commit=1' : ''}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/octet-stream' }, body: file,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Import failed');
+    return data;
+  };
+  const list = (title, items, note) => (items.length ? html`<p class="small"><b>${title}</b> (${items.length})${note ? html` <span class="muted">— ${note}</span>` : ''}</p><ul class="issue-list">${items.map((x) => html`<li>${x}</li>`)}</ul>` : '');
+  modal({
+    title: 'Import assets from IT sheet', size: 'lg',
+    body: html`<div data-step>
+      <p class="muted small" style="margin-bottom:12px">Upload the <b>ALPAGO ASSET IT DETAILS</b> workbook (.xlsx). Handover rows are combined into one asset per serial number with its history, and each current holder is matched to an employee. Import employees first so holders can be matched. Re-importing updates existing assets and keeps assignments you fixed by hand.</p>
+      <label class="dropzone" data-drop>${icon('download', 28)}<b data-fname>Choose or drop the .xlsx file</b><span class="small">Nothing is saved until you confirm</span>
+        <input type="file" accept=".xlsx" hidden></label>
+      <div class="note" style="margin-top:12px">${icon('lock', 16)}<span>Admin accounts and passwords, Apple ID logins and notes that look like credentials are skipped and never stored. The Etisalat sheet is ignored.</span></div>
+      <div class="form-error" hidden style="margin-top:12px"></div></div>`,
+    footer: html`<button class="btn" data-close>Cancel</button><button class="btn btn-primary" data-go disabled>Preview import</button>`,
+    onMount: (m, close) => {
+      const input = m.querySelector('input[type=file]'); const drop = m.querySelector('[data-drop]'); const go = m.querySelector('[data-go]');
+      const step = m.querySelector('[data-step]'); let preview = null;
+      const pick = (f) => { if (!f) return; file = f; m.querySelector('[data-fname]').textContent = f.name; go.disabled = false; };
+      input.addEventListener('change', () => pick(input.files[0]));
+      ['dragover', 'dragenter'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+      ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+      drop.addEventListener('drop', (e) => pick(e.dataTransfer.files[0]));
+      go.addEventListener('click', async () => {
+        go.disabled = true;
+        try {
+          if (!preview) {
+            go.textContent = 'Reading file…';
+            preview = await send(false);
+            const p = preview;
+            step.innerHTML = str(html`
+              <div class="stat-row">
+                <div class="stat"><b>${fmtNum(p.assets)}</b><span>assets (from ${fmtNum(p.rows)} rows)</span></div>
+                <div class="stat"><b>${fmtNum(p.assigned)}</b><span>assigned to employees</span></div>
+                <div class="stat"><b>${fmtNum(p.inUse)}</b><span>in use, holder not matched</span></div>
+                <div class="stat"><b>${fmtNum(p.inStock)}</b><span>in stock / returned</span></div>
+              </div>
+              <p class="small" style="margin-bottom:6px"><b>New:</b> ${p.created} · <b>Updated:</b> ${p.updated} · <b>By type:</b> ${Object.entries(p.byCategory).map(([k, v]) => `${k} ${v}`).join(', ')} · <b>No serial:</b> ${p.noSerial}</p>
+              ${p.employeesInPortal < 10 ? html`<div class="form-error">Only ${p.employeesInPortal} employees are in the portal — import employees from HR first, otherwise holders can't be matched.</div>` : ''}
+              ${list('Matched on one name only', p.weak, 'assigned, flagged for you to confirm')}
+              ${list('Holder matches several employees', p.ambiguous, 'left unassigned for review')}
+              ${list('Holder not found in employees', p.unmatched, 'left unassigned for review')}
+              ${list('Listed as in use by more than one person', p.doubleAssigned, 'last holder used; flagged')}
+              <div class="form-error" hidden style="margin-top:12px"></div>`);
+            go.textContent = `Import ${fmtNum(p.assets)} assets`; go.disabled = false;
+          } else {
+            go.textContent = 'Importing…';
+            const r = await send(true);
+            toast(`Imported: ${r.created} added, ${r.updated} updated, ${r.assigned} assigned`);
+            close(); done?.();
+          }
+        } catch (e) {
+          const box = m.querySelector('.form-error'); box.hidden = false; box.textContent = e.message;
+          go.disabled = false; go.textContent = preview ? `Import ${fmtNum(preview.assets)} assets` : 'Preview import';
+        }
+      });
+    },
+  });
+}
+
 // ---------- list ----------
 async function list(ctx) {
   const { el, can, lookups } = ctx;
@@ -74,7 +148,8 @@ async function list(ctx) {
   el.innerHTML = str(html`
   <div class="page-head"><div><h2>Asset Inventory</h2><p class="muted">Hardware across all Alpago Group entities.</p></div>
     <div class="actions"><button class="btn" data-export>${icon('download', 17)} Export CSV</button>
-    ${can('assets.manage') ? html`<button class="btn btn-primary" data-add>${icon('plus', 18)} Add Asset</button>` : ''}</div></div>
+    ${can('assets.manage') ? html`<button class="btn" data-import>${icon('file', 17)} Import from IT sheet</button>
+      <button class="btn btn-primary" data-add>${icon('plus', 18)} Add Asset</button>` : ''}</div></div>
   <div class="card">
     <div class="filters">
       <div class="search">${icon('search', 17)}<input name="q" placeholder="Search tag, name, serial, holder…" value="${q.q || ''}"></div>
@@ -82,6 +157,7 @@ async function list(ctx) {
       <select name="status"><option value="">All statuses</option>${lookups.assetStatuses.map((c) => html`<option ${c === q.status ? 'selected' : ''}>${c}</option>`)}</select>
       <select name="entity_id"><option value="">All entities</option>${lookups.entities.map((e) => html`<option value="${e.id}" ${String(e.id) === q.entity_id ? 'selected' : ''}>${e.name}</option>`)}</select>
       <select name="warranty"><option value="">Any warranty</option><option value="expiring" ${q.warranty === 'expiring' ? 'selected' : ''}>Expiring ≤ 90 days</option><option value="expired" ${q.warranty === 'expired' ? 'selected' : ''}>Expired</option></select>
+      <select name="review"><option value="">All records</option><option value="1" ${q.review === '1' ? 'selected' : ''}>Needs review</option></select>
     </div>
     <div data-results>${spinner()}</div>
   </div>`);
@@ -98,7 +174,8 @@ async function list(ctx) {
       <tbody>${d.rows.map((a) => html`<tr data-href="#/assets/${a.id}">
         <td class="mono">${a.asset_tag}</td>
         <td><div class="cell-asset"><span class="thumb sm">${icon(categoryIcon(a.category), 17)}</span><div><b>${a.name}</b><span class="muted small">${a.serial_number || ''}</span></div></div></td>
-        <td>${a.category}</td><td>${badge(a.status)}</td><td>${a.assigned_name || html`<span class="muted">—</span>`}</td>
+        <td>${a.category}</td><td>${badge(a.status)} ${a.review_flag ? html`<span title="${a.review_flag}">${badge('Review', 'amber')}</span>` : ''}</td>
+        <td>${a.assigned_name || (a.sheet_holder ? html`<span class="muted" title="Name in IT sheet — not matched">${a.sheet_holder} ${icon('alert', 13)}</span>` : html`<span class="muted">—</span>`)}</td>
         <td class="muted">${a.entity_name || '—'}</td>
         <td class="nowrap ${a.warranty_expiry && new Date(a.warranty_expiry) < new Date() ? 'txt-red' : ''}">${fmtDate(a.warranty_expiry)}</td>
         <td class="row-actions">${can('assets.assign') && a.status !== 'Retired' ? html`<button class="icon-btn" title="Assign" data-assign="${a.id}">${icon('userPlus', 17)}</button>` : ''}</td>
@@ -114,6 +191,7 @@ async function list(ctx) {
   const reload = () => { q.page = 1; load().catch(toastErr); };
   el.querySelector('[name=q]').addEventListener('input', debounce((e) => { q.q = e.target.value; reload(); }, 300));
   el.querySelectorAll('.filters select').forEach((s) => s.addEventListener('change', () => { q[s.name] = s.value; reload(); }));
+  el.querySelector('[data-import]')?.addEventListener('click', () => importModal(() => { q.page = 1; ctx.reload(); }));
   el.querySelector('[data-add]')?.addEventListener('click', () => assetForm(ctx, null, async (r) => { await ctx.refreshLookups(); location.hash = `#/assets/${r.id}`; }));
   el.querySelector('[data-export]').addEventListener('click', () => {
     const qs = new URLSearchParams(Object.entries(q).filter(([k, v]) => v && !['page', 'pageSize'].includes(k))).toString();
@@ -149,6 +227,10 @@ async function detail(ctx, id) {
     </div>
   </div>
 
+  ${a.review_flag ? html`<div class="note review-note">${icon('alert', 16)}<span><b>Needs review:</b> ${a.review_flag}${a.sheet_holder ? html` · Name in IT sheet: <b>${a.sheet_holder}</b>` : ''}</span>
+    <span class="grow"></span>${can('assets.assign') ? html`${a.assigned_to ? html`<button class="btn btn-sm btn-success" data-confirm>${icon('check', 14)} Confirm ${a.assigned_name}</button>` : ''}
+      <button class="btn btn-sm" data-assign2>${icon('userPlus', 14)} ${a.assigned_to ? 'Change holder' : 'Assign holder'}</button>
+      ${!a.assigned_to ? html`<button class="btn btn-sm" data-confirm>Mark reviewed</button>` : ''}` : ''}</div>` : ''}
   <div class="grid-2 detail">
     <div class="card">
       <div class="card-head"><h3>Details</h3></div>
@@ -160,7 +242,10 @@ async function detail(ctx, id) {
         ${row('Serial number', a.serial_number)}${row('Condition', a.condition)}
         ${row('Purchase date', fmtDate(a.purchase_date))}${row('Purchase cost', fmtMoney(a.purchase_cost))}
         ${row('Supplier', a.supplier)}${row('Warranty expiry', fmtDate(a.warranty_expiry))}
+        ${row('Purchase ref', a.purchase_ref)}${row('AnyDesk ID', a.remote_id)}
       </div>
+      ${a.os || a.processor || a.ram || a.storage || a.graphics ? html`<h6 class="section-title">Specifications</h6><div class="kv-grid">
+        ${row('Operating system', a.os)}${row('Processor', a.processor)}${row('RAM', a.ram)}${row('Storage', a.storage)}${a.graphics ? row('Graphics', a.graphics) : ''}</div>` : ''}
       ${a.notes ? html`<div class="notes"><h6>Notes</h6><p>${a.notes}</p></div>` : ''}
     </div>
     <div class="card">
@@ -178,6 +263,8 @@ async function detail(ctx, id) {
 
   el.querySelectorAll('tr[data-href]').forEach((r) => r.addEventListener('click', () => { location.hash = r.dataset.href; }));
   el.querySelector('[data-assign]')?.addEventListener('click', () => assignForm(ctx, a, refresh));
+  el.querySelector('[data-assign2]')?.addEventListener('click', () => assignForm(ctx, a, refresh));
+  el.querySelector('[data-confirm]')?.addEventListener('click', () => api.post(`/assets/${a.id}/confirm`, {}).then(() => { toast('Marked as reviewed'); refresh(); }).catch(toastErr));
   el.querySelector('[data-transfer]')?.addEventListener('click', () => transferForm(ctx, a, refresh));
   el.querySelector('[data-edit]')?.addEventListener('click', () => assetForm(ctx, a, refresh));
   el.querySelector('[data-return]')?.addEventListener('click', async () => {

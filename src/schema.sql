@@ -181,3 +181,17 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS shift_end TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS ess_created BOOLEAN;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS ess_user_id TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS hr_synced_at TIMESTAMPTZ;
+
+-- ---------- Asset specs & import review ----------
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS purchase_ref TEXT;
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS os TEXT;
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS processor TEXT;
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS ram TEXT;
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS storage TEXT;
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS graphics TEXT;
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS remote_id TEXT;
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS sheet_holder TEXT;
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS review_flag TEXT;
+CREATE INDEX IF NOT EXISTS idx_assets_serial ON assets (upper(serial_number));
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS import_key TEXT;
+CREATE INDEX IF NOT EXISTS idx_assets_import_key ON assets (import_key);
