@@ -1,0 +1,43 @@
+# Render Blueprint — Alpago IT Portal
+# Creates one Node web service + one PostgreSQL database and wires them together.
+# For a short trial you can set both plans to "free" (free Postgres expires after 30 days).
+
+services:
+  - type: web
+    name: alpago-it-portal
+    runtime: node
+    region: frankfurt
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: alpago-it-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES
+        value: 12h
+      - key: ADMIN_EMAIL
+        sync: false          # you'll be prompted for this when creating the Blueprint
+      - key: ADMIN_PASSWORD
+        sync: false          # first admin password (change it after first login)
+      - key: ADMIN_NAME
+        value: Portal Administrator
+      - key: SEED_DEMO
+        value: "true"        # "true" loads sample assets/tickets on first start
+
+databases:
+  - name: alpago-it-db
+    region: frankfurt
+    plan: free
+    databaseName: alpago_it
+    user: alpago
+    postgresMajorVersion: "16"
