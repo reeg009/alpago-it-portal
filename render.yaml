@@ -32,7 +32,7 @@ services:
       - key: ADMIN_NAME
         value: Portal Administrator
       - key: SEED_DEMO
-        value: "true"        # "true" loads sample assets/tickets on first start
+        value: "false"       # "true" loads sample assets/tickets on first start
 
 databases:
   - name: alpago-it-db

@@ -67,6 +67,29 @@ async function migrate() {
     console.log(`Created admin account ${adminEmail}`);
   }
 
+  // One-time data reset: runs once per DATA_RESET_TOKEN value.
+  // Keeps Administrator accounts, entities, roles and permissions; deletes everything else.
+  const resetToken = process.env.DATA_RESET_TOKEN;
+  if (resetToken) {
+    await query('CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT, created_at TIMESTAMPTZ DEFAULT now())');
+    const done = (await query('SELECT 1 FROM app_meta WHERE key = $1', [`reset:${resetToken}`])).rows[0];
+    if (!done) {
+      await tx(async (c) => {
+        await c.query('DELETE FROM license_assignments');
+        await c.query('DELETE FROM licenses');
+        await c.query('DELETE FROM ticket_comments');
+        await c.query('DELETE FROM tickets');
+        await c.query('DELETE FROM asset_history');
+        await c.query('DELETE FROM assets');
+        await c.query('DELETE FROM audit_log');
+        await c.query(`DELETE FROM users WHERE role_id NOT IN (SELECT id FROM roles WHERE is_system)`);
+        await c.query("ALTER SEQUENCE ticket_no_seq RESTART WITH 1");
+        await c.query('INSERT INTO app_meta (key, value) VALUES ($1, $2)', [`reset:${resetToken}`, 'done']);
+      });
+      console.log(`Data reset completed (token ${resetToken})`);
+    }
+  }
+
   if (process.env.SEED_DEMO === 'true') {
     const { rows } = await query('SELECT COUNT(*)::int AS n FROM assets');
     if (rows[0].n === 0) await require('./demo-seed')(tx);
