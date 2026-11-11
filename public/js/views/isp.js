@@ -1,5 +1,5 @@
 import { api, auth } from '../api.js';
-import { html, str, icon, badge, empty, spinner, formModal, modal, confirmBox, toast, toastErr, debounce, fmtNum, fmtDate } from '../ui.js';
+import { html, str, icon, badge, avatar, empty, spinner, pager, formModal, modal, confirmBox, toast, toastErr, debounce, fmtNum, fmtDate } from '../ui.js';
 
 const COLS = [
   ['sl_no', 'Sl No'], ['entity', 'Entity'], ['account', 'Account'], ['account_name', 'Account Name'],
@@ -96,9 +96,80 @@ function importModal(done) {
   });
 }
 
+// ---------- helpers ----------
+function lineType(l) {
+  const t = `${l.product_category || ''} ${l.product_type || ''} ${l.designation || ''} ${l.holder_name || ''} ${l.package || ''}`.toUpperCase();
+  const acc = String(l.account || '').replace(/\D/g, '');
+  if (/INTERNET|WIRELESS|ROUTER|BUSINESS IN A BOX|BFXI|WIFI/.test(t)) return 'Internet';
+  if (/LANDLINE|PBX|TOLL FREE|CARE NUMBER/.test(t) || /^(04|800|900)/.test(acc)) return 'Landline';
+  if (/MOBILE|GS\b|ISHARE|PREPAID/.test(t) || /^05\d{8}$/.test(acc)) return 'Mobile';
+  return 'Other';
+}
+const TYPE_ICON = { Mobile: 'phone', Internet: 'network', Landline: 'desktop', Other: 'box' };
+const TYPE_TONE = { Mobile: 'blue', Internet: 'teal', Landline: 'purple', Other: 'slate' };
+const fmtAcc = (a) => {
+  const d = String(a || '');
+  return /^05\d{8}$/.test(d) ? `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}` : d;
+};
+const isNum = (v) => v !== null && v !== undefined && /^\s*\d+(\.\d+)?\s*$/.test(String(v));
+
+// ---------- detail ----------
+async function detail(ctx, id) {
+  const { el, can } = ctx;
+  el.innerHTML = str(spinner());
+  const l = await api.get(`/isp/line/${id}`);
+  if (!ctx.alive()) return;
+  const type = lineType(l);
+  ctx.setTitle(fmtAcc(l.account) || 'ISP line');
+  const manage = can('isp.manage');
+  const kv = (k, v) => html`<div class="kv"><span>${k}</span><b>${v === null || v === undefined || v === '' ? '—' : v}</b></div>`;
+  const back = l.list === 'Cancelled' ? '#/isp?list=Cancelled' : '#/isp';
+  el.innerHTML = str(html`
+  <a class="back" href="${back}">${icon('chevLeft', 16)} ISP &amp; Telecom</a>
+  <div class="page-head"><div class="title-row"><span class="thumb lg tone-${TYPE_TONE[type]}">${icon(TYPE_ICON[type], 28)}</span>
+    <div><h2 class="mono-lg">${fmtAcc(l.account) || 'No account number'}</h2>
+      <p class="muted">${type} · ${l.provider}${l.product_category ? ` · ${l.product_category}` : ''}
+        ${badge(l.list === 'Cancelled' ? 'Cancelled' : (l.status || 'Active'), l.list === 'Cancelled' ? 'gray' : 'green')}</p></div></div>
+    ${manage ? html`<div class="actions"><button class="btn btn-ghost-danger" data-del>${icon('trash', 16)} Delete</button>
+      <button class="btn" data-move>${icon(l.list === 'Active' ? 'x' : 'history', 16)} ${l.list === 'Active' ? 'Move to Cancelled' : 'Reactivate'}</button>
+      <button class="btn btn-primary" data-edit>${icon('edit', 16)} Edit</button></div>` : ''}</div>
+
+  <div class="grid-2">
+    <div class="card"><div class="card-head"><h3>Line details</h3></div><div class="kv-grid">
+      ${kv('Account', l.account)}${kv('Sl No', l.sl_no)}
+      ${kv('Entity', l.entity)}${kv('Account Name', l.account_name)}
+      ${kv('Product Category', l.product_category)}${kv('Product Type', l.product_type)}
+      ${kv('Activation Date', l.activation_date ? fmtDate(l.activation_date) : null)}${kv('Status', l.status)}
+      ${kv('Party ID', l.party_id)}${kv('Provider', l.provider)}
+    </div></div>
+    <div class="card"><div class="card-head"><h3>Plan &amp; holder</h3></div><div class="kv-grid">
+      ${kv('Package', isNum(l.package) ? `AED ${l.package}` : l.package)}${kv('Limit', isNum(l.limit_amount) ? `AED ${l.limit_amount}` : l.limit_amount)}
+      ${kv('Name (as in sheet)', l.holder_name)}${kv('Designation', l.designation)}
+      ${kv('Linked employee', l.employee_id ? html`<a href="#/employees/${l.employee_id}">${l.employee_name}</a>` : null)}
+      ${kv('Employee department', l.employee_department)}
+    </div></div>
+  </div>
+  <div class="grid-2">
+    <div class="card"><div class="card-head"><h3>Remarks</h3></div><p class="pad pre">${l.remarks || html`<span class="muted">No remarks</span>`}</p></div>
+    <div class="card"><div class="card-head"><h3>Comments</h3></div><p class="pad pre">${l.comments || html`<span class="muted">No comments</span>`}</p></div>
+  </div>`);
+  const refresh = () => detail(ctx, id).catch(toastErr);
+  el.querySelector('[data-edit]')?.addEventListener('click', () => lineForm(ctx, l, refresh));
+  el.querySelector('[data-move]')?.addEventListener('click', async () => {
+    const to = l.list === 'Active' ? 'Cancelled' : 'Active';
+    if (!(await confirmBox(`Move to ${to}`, `Move ${fmtAcc(l.account) || 'this line'} to the ${to} list?`, { okText: 'Move' }))) return;
+    api.put(`/isp/lines/${l.id}`, { list: to }).then(() => { toast(`Moved to ${to}`); refresh(); }).catch(toastErr);
+  });
+  el.querySelector('[data-del]')?.addEventListener('click', async () => {
+    if (!(await confirmBox('Delete line', 'Delete this line permanently?', { danger: true, okText: 'Delete' }))) return;
+    api.del(`/isp/lines/${l.id}`).then(() => { toast('Line deleted'); location.hash = back; }).catch(toastErr);
+  });
+}
+
 export async function render(ctx) {
   const { el, can } = ctx;
   if (!can('isp.view')) { location.hash = '#/my'; return; }
+  if (ctx.params[0] === 'line' && ctx.params[1]) return detail(ctx, ctx.params[1]);
   const tab = ctx.params[0] === 'contacts' ? 'contacts' : ctx.query.list === 'Cancelled' ? 'Cancelled' : 'Active';
   const manage = can('isp.manage');
   el.innerHTML = str(spinner());
@@ -107,20 +178,20 @@ export async function render(ctx) {
   const pkgTotal = sum.byEntity.reduce((a, e) => a + e.package_total, 0);
 
   el.innerHTML = str(html`
-  <div class="page-head"><div><h2>ISP &amp; Telecom</h2><p class="muted">Numbers, internet and landlines — maintained in the same layout as the Etisalat sheet.</p></div>
+  <div class="page-head"><div><h2>ISP &amp; Telecom</h2><p class="muted">Mobile numbers, internet and landlines across Alpago Group.</p></div>
     <div class="actions">${tab !== 'contacts' ? html`<button class="btn" data-export>${icon('download', 17)} Export CSV</button>` : ''}
       ${manage ? html`<button class="btn" data-import>${icon('file', 17)} Import sheet</button>
         <button class="btn btn-primary" data-add>${icon('plus', 18)} ${tab === 'contacts' ? 'Add contact' : 'Add line'}</button>` : ''}</div></div>
 
   <section class="kpis">
-    <div class="card kpi"><div class="kpi-ic tone-blue">${icon('phone', 28)}</div><div><span class="kpi-label">Active lines</span><b class="kpi-val">${fmtNum(sum.totals.Active || 0)}</b></div></div>
-    <div class="card kpi"><div class="kpi-ic tone-green">${icon('key', 28)}</div><div><span class="kpi-label">Package total (active)</span><b class="kpi-val">AED ${fmtNum(pkgTotal)}</b><span class="muted small">sum of numeric Package values</span></div></div>
-    <div class="card kpi"><div class="kpi-ic tone-orange">${icon('x', 28)}</div><div><span class="kpi-label">Cancelled list</span><b class="kpi-val">${fmtNum(sum.totals.Cancelled || 0)}</b></div></div>
-    <div class="card kpi"><div class="kpi-ic tone-purple">${icon('users', 28)}</div><div><span class="kpi-label">B2B contacts</span><b class="kpi-val">${fmtNum(sum.contacts)}</b></div></div>
+    <a class="card kpi" href="#/isp"><div class="kpi-ic tone-blue">${icon('phone', 28)}</div><div><span class="kpi-label">Active lines</span><b class="kpi-val">${fmtNum(sum.totals.Active || 0)}</b></div></a>
+    <div class="card kpi"><div class="kpi-ic tone-green">${icon('key', 28)}</div><div><span class="kpi-label">Monthly packages</span><b class="kpi-val">AED ${fmtNum(pkgTotal)}</b><span class="muted small">active lines with a numeric package</span></div></div>
+    <a class="card kpi" href="#/isp?list=Cancelled"><div class="kpi-ic tone-orange">${icon('x', 28)}</div><div><span class="kpi-label">Cancelled</span><b class="kpi-val">${fmtNum(sum.totals.Cancelled || 0)}</b></div></a>
+    <a class="card kpi" href="#/isp/contacts"><div class="kpi-ic tone-purple">${icon('users', 28)}</div><div><span class="kpi-label">B2B contacts</span><b class="kpi-val">${fmtNum(sum.contacts)}</b></div></a>
   </section>
 
   <div class="seg">
-    <a href="#/isp" class="${tab === 'Active' ? 'active' : ''}">${icon('phone', 16)} Active numbers</a>
+    <a href="#/isp" class="${tab === 'Active' ? 'active' : ''}">${icon('phone', 16)} Active</a>
     <a href="#/isp?list=Cancelled" class="${tab === 'Cancelled' ? 'active' : ''}">${icon('x', 16)} Cancelled</a>
     <a href="#/isp/contacts" class="${tab === 'contacts' ? 'active' : ''}">${icon('users', 16)} B2B contacts</a>
   </div>
@@ -133,8 +204,10 @@ export async function render(ctx) {
   if (tab === 'contacts') {
     const loadC = async () => {
       const { rows } = await api.get('/isp/contacts');
-      body.innerHTML = str(rows.length ? html`<div class="table-wrap"><table class="table"><thead><tr><th>Sl No</th><th>Name</th><th>Entities</th><th>Email</th><th>Phone</th><th>Provider</th><th></th></tr></thead>
-        <tbody>${rows.map((c) => html`<tr><td>${c.sl_no || ''}</td><td><b>${c.name}</b></td><td>${c.entities || ''}</td><td>${c.email || ''}</td><td class="nowrap">${c.phone || ''}</td><td class="muted">${c.provider}</td>
+      body.innerHTML = str(rows.length ? html`<div class="table-wrap"><table class="table"><thead><tr><th>Contact</th><th>Entities</th><th>Phone</th><th>Provider</th><th></th></tr></thead>
+        <tbody>${rows.map((c) => html`<tr><td><div class="cell-user">${avatar(c.name, 34)}<div><b>${c.name}</b><span class="muted small">${c.email || 'No email'}</span></div></div></td>
+          <td>${(c.entities || '').split(',').filter(Boolean).map((e) => html`<span class="pill pill-sm">${e.trim()}</span> `)}</td>
+          <td class="nowrap">${c.phone || '—'}</td><td>${badge(c.provider, 'slate')}</td>
           <td class="row-actions nowrap">${manage ? html`<button class="icon-btn" data-edit="${c.id}" title="Edit">${icon('edit', 16)}</button><button class="icon-btn" data-del="${c.id}" title="Delete">${icon('trash', 16)}</button>` : ''}</td></tr>`)}</tbody></table></div>`
         : empty('No B2B contacts yet', 'users'));
       body.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => contactForm(rows.find((r) => r.id === +b.dataset.edit), loadC)));
@@ -147,37 +220,58 @@ export async function render(ctx) {
   }
 
   const q = { list: tab, ...ctx.query };
-  const cats = sum.byCategory.map((c) => c.category);
+  const st = { page: 1, pageSize: 25, sort: 'sheet', dir: 'asc', type: ctx.query.type || '' };
+  const cats = sum.byCategory.map((c) => c.category).filter((c) => c !== '(blank)');
   body.innerHTML = str(html`<div class="filters">
       <div class="search">${icon('search', 17)}<input name="q" placeholder="Search number, name, designation, remarks…" value="${q.q || ''}"></div>
-      <select name="entity"><option value="">All entities</option>${[...ENTITIES, '(blank)'].map((e) => html`<option ${e === q.entity ? 'selected' : ''}>${e}</option>`)}</select>
+      <select name="type"><option value="">All types</option>${['Mobile', 'Internet', 'Landline', 'Other'].map((t) => html`<option ${t === st.type ? 'selected' : ''}>${t}</option>`)}</select>
+      <select name="entity"><option value="">All entities</option>${[...ENTITIES, '(blank)'].map((e) => html`<option ${e === q.entity ? 'selected' : ''} value="${e}">${e === '(blank)' ? 'No entity' : e}</option>`)}</select>
       <select name="category"><option value="">All categories</option>${cats.map((c) => html`<option ${c === q.category ? 'selected' : ''}>${c}</option>`)}</select>
-      <span class="grow"></span><span class="muted small" data-count></span></div><div data-results>${spinner()}</div>`);
+    </div><div data-results>${spinner()}</div>`);
   const results = body.querySelector('[data-results]');
+  let all = [];
+  const SORTS = {
+    sheet: (r) => r.sort_order, number: (r) => String(r.account || ''), holder: (r) => (r.employee_name || r.holder_name || '').toUpperCase(),
+    entity: (r) => r.entity || '', package: (r) => (isNum(r.package) ? Number(r.package) : -1), date: (r) => r.activation_date || '',
+  };
+  const draw = () => {
+    let rows = st.type ? all.filter((r) => lineType(r) === st.type) : all;
+    const key = SORTS[st.sort];
+    rows = [...rows].sort((a, b) => { const x = key(a); const y = key(b); return (x > y ? 1 : x < y ? -1 : 0) * (st.dir === 'asc' ? 1 : -1); });
+    const total = rows.length;
+    const pages = Math.max(1, Math.ceil(total / st.pageSize));
+    st.page = Math.min(st.page, pages);
+    const view = rows.slice((st.page - 1) * st.pageSize, st.page * st.pageSize);
+    const th = (k, label) => html`<th class="sortable ${st.sort === k ? `sorted ${st.dir}` : ''}" data-sort="${k}">${label}</th>`;
+    results.innerHTML = str(total ? html`<div class="table-wrap"><table class="table">
+      <thead><tr>${th('number', 'Number')}${th('holder', 'Assigned to')}${th('entity', 'Entity')}<th>Category</th>${th('package', 'Package')}${th('date', 'Activated')}<th>Status</th><th></th></tr></thead>
+      <tbody>${view.map((r) => { const type = lineType(r); const notes = [r.remarks, r.comments].filter(Boolean).join('\n'); return html`<tr data-href="#/isp/line/${r.id}">
+        <td><div class="cell-asset"><span class="thumb sm tone-${TYPE_TONE[type]}">${icon(TYPE_ICON[type], 16)}</span>
+          <div><b class="mono">${fmtAcc(r.account) || '—'}</b><span class="muted small">${type}${r.product_type ? ` · ${r.product_type}` : ''}${r.sl_no ? ` · #${r.sl_no}` : ''}</span></div></div></td>
+        <td>${r.employee_id ? html`<div class="cell-user">${avatar(r.employee_name, 30)}<div><b>${r.employee_name}</b><span class="muted small">${r.designation || ''}</span></div></div>`
+          : r.holder_name ? html`<div><b>${r.holder_name}</b><span class="muted small block">${r.designation || ''}</span></div>`
+          : html`<span class="muted">${r.designation || '—'}</span>`}</td>
+        <td class="muted">${r.entity || '—'}</td>
+        <td>${r.product_category ? badge(r.product_category, 'slate') : html`<span class="muted">—</span>`}</td>
+        <td class="nowrap">${isNum(r.package) ? html`<b>AED ${r.package}</b>` : (r.package || html`<span class="muted">—</span>`)}${isNum(r.limit_amount) && Number(r.limit_amount) > 0 ? html`<span class="muted small block">Limit AED ${r.limit_amount}</span>` : ''}</td>
+        <td class="nowrap muted">${r.activation_date ? fmtDate(r.activation_date) : '—'}</td>
+        <td>${r.list === 'Cancelled' ? badge('Cancelled', 'gray') : badge(r.status ? r.status.charAt(0) + r.status.slice(1).toLowerCase() : 'Active', 'green')}</td>
+        <td class="row-actions nowrap">${notes ? html`<span class="note-dot" title="${notes}">${icon('message', 15)}</span>` : ''}${icon('chevRight', 16)}</td></tr>`; })}</tbody></table></div>
+      ${pager(total, st.page, st.pageSize)}` : empty('No lines match these filters', 'phone'));
+    results.querySelectorAll('tr[data-href]').forEach((tr) => tr.addEventListener('click', () => { location.hash = tr.dataset.href; }));
+    results.querySelectorAll('[data-sort]').forEach((t) => t.addEventListener('click', () => {
+      st.dir = st.sort === t.dataset.sort && st.dir === 'asc' ? 'desc' : 'asc'; st.sort = t.dataset.sort; draw();
+    }));
+    results.querySelectorAll('[data-page]').forEach((b) => b.addEventListener('click', () => { st.page = +b.dataset.page; draw(); }));
+  };
   const load = async () => {
-    const { rows } = await api.get(`/isp/lines?${new URLSearchParams(Object.entries(q).filter(([, v]) => v)).toString()}`);
+    all = (await api.get(`/isp/lines?${new URLSearchParams(Object.entries(q).filter(([, v]) => v)).toString()}`)).rows;
     if (!ctx.alive()) return;
-    body.querySelector('[data-count]').textContent = `${rows.length} line${rows.length === 1 ? '' : 's'}`;
-    results.innerHTML = str(rows.length ? html`<div class="table-wrap sheet-wrap"><table class="table sheet">
-      <thead><tr>${COLS.map(([, l]) => html`<th>${l}</th>`)}<th>Employee</th>${manage ? html`<th></th>` : ''}</tr></thead>
-      <tbody>${rows.map((r) => html`<tr>${COLS.map(([k]) => html`<td class="${k === 'account' ? 'mono nowrap' : ['remarks', 'comments'].includes(k) ? 'wrap-cell' : 'nowrap'}">${k === 'activation_date' ? (r[k] ? fmtDate(r[k]) : '') : k === 'status' && r[k] ? badge(r[k], /active/i.test(r[k]) ? 'green' : 'slate') : (r[k] ?? '')}</td>`)}
-        <td class="nowrap">${r.employee_id ? html`<a href="#/employees/${r.employee_id}">${r.employee_name}</a>` : html`<span class="muted">—</span>`}</td>
-        ${manage ? html`<td class="row-actions nowrap"><button class="icon-btn" data-edit="${r.id}" title="Edit">${icon('edit', 16)}</button>
-          <button class="icon-btn" data-move="${r.id}" title="${r.list === 'Active' ? 'Move to Cancelled' : 'Move back to Active'}">${icon(r.list === 'Active' ? 'x' : 'history', 16)}</button>
-          <button class="icon-btn" data-del="${r.id}" title="Delete">${icon('trash', 16)}</button></td>` : ''}</tr>`)}</tbody></table></div>`
-      : empty('No lines match these filters', 'phone'));
-    results.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => lineForm(ctx, rows.find((r) => r.id === +b.dataset.edit), load)));
-    results.querySelectorAll('[data-move]').forEach((b) => b.addEventListener('click', async () => {
-      const r = rows.find((x) => x.id === +b.dataset.move); const to = r.list === 'Active' ? 'Cancelled' : 'Active';
-      if (!(await confirmBox(`Move to ${to}`, `Move ${r.account || 'this line'} to the ${to} list?`, { okText: 'Move' }))) return;
-      api.put(`/isp/lines/${r.id}`, { list: to }).then(() => { toast(`Moved to ${to}`); ctx.reload(); }).catch(toastErr);
-    }));
-    results.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
-      if (await confirmBox('Delete line', 'Delete this line permanently?', { danger: true, okText: 'Delete' })) api.del(`/isp/lines/${b.dataset.del}`).then(load).catch(toastErr);
-    }));
+    st.page = 1; draw();
   };
   body.querySelector('[name=q]').addEventListener('input', debounce((e) => { q.q = e.target.value; load().catch(toastErr); }, 300));
-  body.querySelectorAll('select').forEach((s) => s.addEventListener('change', () => { q[s.name] = s.value; load().catch(toastErr); }));
+  body.querySelector('[name=type]').addEventListener('change', (e) => { st.type = e.target.value; st.page = 1; draw(); });
+  body.querySelectorAll('select[name=entity], select[name=category]').forEach((s) => s.addEventListener('change', () => { q[s.name] = s.value; load().catch(toastErr); }));
   el.querySelector('[data-add]')?.addEventListener('click', () => lineForm(ctx, null, () => ctx.reload()));
   await load();
 }

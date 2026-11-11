@@ -62,6 +62,14 @@ router.get('/summary', requirePerm('isp.view'), wrap(async (req, res) => {
   res.json({ totals: Object.fromEntries(tot.map((r) => [r.list, r.n])), byEntity, byCategory, providers, contacts });
 }));
 
+router.get('/line/:id', requirePerm('isp.view'), wrap(async (req, res) => {
+  const { rows } = await query(
+    `SELECT l.*, u.full_name AS employee_name, u.department AS employee_department, u.job_title AS employee_title
+       FROM isp_lines l LEFT JOIN users u ON u.id = l.employee_id WHERE l.id = $1`, [int(req.params.id)]);
+  if (!rows[0]) throw notFound('Line');
+  res.json(rows[0]);
+}));
+
 router.get('/lines/export.csv', requirePerm('isp.view'), wrap(async (req, res) => {
   const list = req.query.list === 'Cancelled' ? 'Cancelled' : 'Active';
   const { rows } = await query(
